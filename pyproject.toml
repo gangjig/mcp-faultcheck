@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-faultcheck"
+version = "0.1.0"
+description = "Fault-injection harness for MCP servers: proxy your server, inject tool failures, and measure how much task success drops per fault type."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Gang Ji" }]
+keywords = ["mcp", "fault-injection", "evaluation", "agents", "reliability", "testing"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+# Zero required dependencies: MCP over stdio is line-delimited JSON-RPC,
+# which the standard library handles fine. That is the point of the tool.
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+mcp-faultcheck = "mcp_faultcheck.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["mcp_faultcheck*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

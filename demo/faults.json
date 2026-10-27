@@ -1,0 +1,1 @@
+{"call_timeout_seconds":1.0,"faults":[{"delay_seconds":2.5,"kind":"timeout","trigger":{"every":1}},{"kind":"empty","trigger":{"every":1}},{"kind":"malformed","trigger":{"every":1}},{"error_code":-32403,"error_message":"injected fault: permission denied","kind":"error","trigger":{"every":1}},{"kind":"garbage-schema","trigger":{"every":1}}]}
