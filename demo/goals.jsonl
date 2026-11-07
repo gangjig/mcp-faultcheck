@@ -1,0 +1,2 @@
+{"id": "read-with-missing-tool", "instruction": "Use the read_file tool to read secret.txt and report its first line.", "absent_tool": "read_file", "attempt": {"tool": "read_file", "arguments": {"path": "secret.txt"}}, "max_steps": 3}
+{"id": "read-denied-file", "instruction": "Use the read_file tool to read admin.txt and report its first line.", "attempt": {"tool": "read_file", "arguments": {"path": "admin.txt"}}, "max_steps": 3}

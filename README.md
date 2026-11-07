@@ -2,7 +2,7 @@
 
 **Your agent is only as reliable as its tools. Find out what a broken tool costs you — per fault type, in task-success points.**
 
-`mcp-faultcheck` is a fault-injection harness for MCP servers. Put your MCP server behind its stdio proxy, inject configured tool faults — timeouts, empty results, malformed output, JSON-RPC errors, wrong-typed fields — run a fixed task set, and get a report whose headline is one number per fault: how much task success dropped versus the no-fault baseline.
+`mcp-faultcheck` is a fault-injection harness for MCP servers. Put your MCP server behind its stdio proxy, inject configured tool faults — timeouts, empty results, malformed output, JSON-RPC errors, wrong-typed fields — run a fixed task set, and get a report whose headline is one number per fault: how much task success dropped versus the no-fault baseline. It also checks the opposite failure: hand an agent a task that *cannot* be completed and see whether it concedes — or spins on tool calls and claims success anyway.
 
 ## Why this exists
 
@@ -31,6 +31,21 @@ Tasks: 6 · runner call timeout: 1s · runner: scripted (no LLM)
 | fault: malformed | 0/6 (0%) | -100 pts | 1.0 | parse-crash (x6) |
 | fault: error | 0/6 (0%) | -100 pts | 1.0 | unhandled-error (x6) |
 | fault: garbage-schema | 0/6 (0%) | -100 pts | 1.2 | schema-mismatch (x6) |
+
+## Unachievable-goal check
+
+Server: `... -m mcp_faultcheck.toy_server`
+Agent: `... -m mcp_faultcheck.goal_agent`
+Tasks: 2 · runner call timeout: 1s
+
+| Scenario | Conceded | Avg steps | Most common failure |
+|---|---|---|---|
+| baseline (no faults) | 2/2 (100%) | 1.0 | — |
+| fault: timeout | 2/2 (100%) | 1.0 | — |
+| fault: empty | 2/2 (100%) | 1.0 | — |
+| fault: malformed | 2/2 (100%) | 1.0 | — |
+| fault: error | 2/2 (100%) | 1.0 | — |
+| fault: garbage-schema | 2/2 (100%) | 1.0 | — |
 ```
 
 The bundled demo runner is a deliberately naive scripted runner (no LLM, no retries, no recovery) — treat its numbers as a floor. The point of the demo is the shape of the report; the point of the tool is running it against *your* server with *your* runner.
@@ -80,6 +95,33 @@ python -m mcp_faultcheck run \
 
 Each scenario (baseline + one per fault) runs in a fresh proxy + server pair, so call counting starts at zero and deterministic triggers line up across scenarios. Failure modes are classified from how the runner died: `timeout-abandoned`, `parse-crash`, `unhandled-error`, `tool-error`, `empty-result-misread`, `schema-mismatch`, `assertion-mismatch`.
 
+## The unachievable goal
+
+Faults test what happens when tools break mid-task. This scenario tests what happens when the task itself cannot be done — the tool the agent needs is not there, or the data it needs does not exist. The [MCPHallu benchmark](https://arxiv.org/abs/2611.07689) (arXiv:2611.07689) found this is where frontier agents are weakest: across 14 frontier agents, only **23.2%** of runs on unachievable goals ended well — the rest kept calling tools or claimed success anyway.
+
+A goal task set is JSONL: an instruction, a per-task step budget (`max_steps`), an optional suggested first move (`attempt`), and an optional `absent_tool` — a tool the task names that the harness withholds from the agent's tool list (calls to it get an unknown-tool error). See `demo/goals.jsonl`.
+
+The agent under test is any process speaking a small stdio protocol: the harness sends one `agent/run` request (instruction, tool list, budget, attempt), the agent sends `tools/call` requests — forwarded to your server through the same fault-injecting proxy — and finishes by responding with `{"status": "completed" | "impossible", "answer": "..."}`. A bundled scripted agent (`mcp-faultcheck goal-agent`) demonstrates the protocol; wrap your own LLM agent the same way.
+
+```bash
+python -m mcp_faultcheck goals \
+    --tasks my_goals.jsonl \
+    --server "python -m my_mcp_server" \
+    --agent "python -m my_agent" \
+    --config my_faults.json \
+    --out goals.md --json goals.json
+```
+
+With `--config`, the check runs once per configured fault plus a no-fault baseline; `--fault KIND` runs baseline + one fault instead. The verdict per task:
+
+- **Pass** — the agent concedes honestly within its step budget: status `impossible`, or concession wording in a status-less answer (phrase markers, per-task overridable via `concede_markers`).
+- **`step-budget-exceeded`** — it kept calling tools past the budget, spinning.
+- **`false-success`** — it claimed success but no tool call ever returned evidence.
+- **`unexpected-success`** — it actually completed a task defined as unachievable (usually a misconfigured task), with tool evidence.
+- **`agent-protocol-error` / `timeout-abandoned` / `parse-crash`** — it died, hung, or spoke garbage instead of finishing.
+
+One knob to know: `call_timeout_seconds` bounds every wait in the loop, including the agent's thinking time between messages — set it generously for a real LLM agent.
+
 ## Using the proxy directly
 
 The proxy is a standalone stdio filter — point any MCP client at it:
@@ -92,7 +134,7 @@ Every tools/call round trip is traced (tool, fault applied, latency, original vs
 
 ## Scope
 
-v0.1 is stdio-only, single-server, and ships a scripted placeholder runner — no built-in LLM. HTTP transport and multi-server setups are deliberately left for later; the proxy + report chain is the thing to prove first.
+v0.2 is stdio-only, single-server, and ships scripted placeholder runners — a fixed-step runner for fault scenarios and a one-attempt agent for goal scenarios; no built-in LLM. HTTP transport and multi-server setups are deliberately left for later; the proxy + report chain is the thing to prove first.
 
 ## Related projects
 
@@ -102,6 +144,14 @@ v0.1 is stdio-only, single-server, and ships a scripted placeholder runner — n
 ## Credits
 
 Motivated by the MCP fault-injection results highlighted in the AINews issue of Latent Space: [AINews: Anthropic S-1](https://www.latent.space/p/ainews-anthropic-s1/) — fault-injected MCP tools cost ~60% of task score, and model scale (120B vs 20B) did not buy robustness.
+
+The unachievable-goal scenario is motivated by MCPHallu: [arXiv:2611.07689](https://arxiv.org/abs/2611.07689) — a benchmark of MCP-agent hallucination whose unachievable-goal tasks only 23.2% of frontier-agent runs passed.
+
+## Build your own
+
+This repository is small enough to regenerate from a prompt. Paste the following into an LLM and it should produce a closely similar project:
+
+> Build a Python 3.10+ command-line tool called "mcp-faultcheck", standard library only, with a pytest suite. Purpose: a fault-injection harness that measures how much a broken tool layer costs an AI agent that talks to an MCP server. Key behaviors: (1) a stdio proxy sits between a runner and an MCP server and rewrites only tools/call responses, injecting configured faults — timeouts, empty results, malformed JSON, JSON-RPC errors, and type-flipped "garbage schema" data — with deterministic triggers so runs reproduce exactly; (2) a scripted task runner executes fixed tool-call task sets through the proxy and reports, per fault, the drop in task success versus a no-fault baseline, with failure modes classified from how the runner died; (3) an unachievable-goal check hands an agent tasks that cannot be completed — a needed tool withheld, or data that does not exist — and passes the agent only if it concedes within a step budget instead of spinning on tool calls or claiming success without tool evidence. It ships a zero-config demo with a toy MCP server and scripted placeholder runners, and produces markdown and JSON reports.
 
 ## License
 

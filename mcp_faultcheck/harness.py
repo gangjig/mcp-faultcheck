@@ -266,7 +266,7 @@ def run_task(
     try:
         outcome, _ = client.request(
             "initialize",
-            {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "mcp-faultcheck", "version": "0.1.0"}},
+            {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "mcp-faultcheck", "version": "0.2.0"}},
             timeout=call_timeout,
         )
         if outcome != "ok":

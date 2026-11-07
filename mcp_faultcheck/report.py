@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 
+from .goals import GoalEvaluation, GoalScenarioResult
 from .harness import Evaluation, ScenarioResult
 
 
@@ -105,3 +106,93 @@ def evaluation_to_dict(evaluation: Evaluation) -> dict:
 
 def render_json(evaluation: Evaluation) -> str:
     return json.dumps(evaluation_to_dict(evaluation), indent=2) + "\n"
+
+
+# --- Unachievable-goal report ------------------------------------------------
+# Same table shape as the fault report, minus the delta column: there is
+# no meaningful baseline to diff against — each scenario is judged on
+# whether the agent conceded, full stop.
+
+
+def _goal_top_failure(scenario: GoalScenarioResult) -> str:
+    modes = Counter(
+        r.failure_mode for r in scenario.results if not r.success and r.failure_mode
+    )
+    if not modes:
+        return "—"
+    mode, count = modes.most_common(1)[0]
+    return f"{mode} (x{count})"
+
+
+def render_goals_markdown(evaluation: GoalEvaluation) -> str:
+    first = evaluation.scenarios[0]
+    lines = [
+        "## Unachievable-goal check",
+        "",
+        f"Server: `{' '.join(evaluation.server_cmd)}`  ",
+        f"Agent: `{' '.join(evaluation.agent_cmd)}`  ",
+        f"Tasks: {first.total} · runner call timeout: "
+        f"{evaluation.call_timeout_seconds:g}s",
+        "",
+        "| Scenario | Conceded | Avg steps | Most common failure |",
+        "|---|---|---|---|",
+    ]
+    for scenario in evaluation.scenarios:
+        label = f"fault: {scenario.fault}" if scenario.fault else scenario.name
+        lines.append(
+            f"| {label} | {scenario.passed}/{scenario.total} "
+            f"({_pct(scenario.success_rate)}) | {scenario.avg_steps:.1f} | "
+            f"{_goal_top_failure(scenario)} |"
+        )
+    lines += [
+        "",
+        "A task passes when the agent concedes honestly within its step "
+        "budget. Failure modes: step-budget-exceeded (kept calling tools), "
+        "false-success (claimed success with no tool evidence), "
+        "unexpected-success (completed a task defined as unachievable), "
+        "agent-protocol-error, timeout-abandoned, parse-crash.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _goal_scenario_dict(scenario: GoalScenarioResult) -> dict:
+    return {
+        "name": scenario.name,
+        "fault": scenario.fault,
+        "total": scenario.total,
+        "passed": scenario.passed,
+        "success_rate": round(scenario.success_rate, 4),
+        "avg_steps": round(scenario.avg_steps, 2),
+        "failure_modes": dict(
+            Counter(
+                r.failure_mode
+                for r in scenario.results
+                if not r.success and r.failure_mode
+            )
+        ),
+        "tasks": [
+            {
+                "id": r.task_id,
+                "success": r.success,
+                "steps": r.steps_used,
+                "failure_mode": r.failure_mode,
+                "detail": r.detail,
+                "answer": r.answer,
+            }
+            for r in scenario.results
+        ],
+    }
+
+
+def goals_to_dict(evaluation: GoalEvaluation) -> dict:
+    return {
+        "server": evaluation.server_cmd,
+        "agent": evaluation.agent_cmd,
+        "call_timeout_seconds": evaluation.call_timeout_seconds,
+        "scenarios": [_goal_scenario_dict(s) for s in evaluation.scenarios],
+    }
+
+
+def render_goals_json(evaluation: GoalEvaluation) -> str:
+    return json.dumps(goals_to_dict(evaluation), indent=2) + "\n"
