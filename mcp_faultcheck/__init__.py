@@ -11,7 +11,7 @@ or claiming success.
 from .faults import FAULT_KINDS, FaultEngine, FaultSpec, Trigger
 from .goals import GoalTask, load_goal_tasks, run_goal_evaluation
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "FAULT_KINDS",

@@ -8,6 +8,14 @@ is a pure passthrough.
 Every tools/call round trip is traced: sequence number, tool name,
 fault applied (if any), latency, and a summary of the original vs.
 rewritten response. The trace can be dumped as JSONL with ``--trace``.
+
+Trace argument values are *not* dumped verbatim: a value whose key
+name looks sensitive (token, password, credential, ...) is replaced
+with ``"<redacted>"``, and long strings are truncated to the same
+160-character summary as the response fields — recursively, so a
+secret nested inside a dict or list argument is covered too. A task
+that passes a credential as a tool argument does not write it to
+disk in the clear.
 """
 
 from __future__ import annotations
@@ -24,10 +32,49 @@ from .faults import FaultEngine, apply_fault
 
 _SUMMARY_LEN = 160
 
+#: Substrings that mark an argument key as carrying a secret. Matched
+#: against the lowercased key name, at any nesting depth.
+_SENSITIVE_KEY_HINTS = (
+    "key", "token", "secret", "password", "passwd", "credential",
+    "auth", "cookie", "session", "bearer", "private",
+)
+
+REDACTED = "<redacted>"
+
 
 def _summary(line: str) -> str:
     line = line.strip()
     return line if len(line) <= _SUMMARY_LEN else line[:_SUMMARY_LEN] + "..."
+
+
+def _is_sensitive_key(key: object) -> bool:
+    name = str(key).lower()
+    return any(hint in name for hint in _SENSITIVE_KEY_HINTS)
+
+
+def _trace_value(key: object, value):
+    """One argument value as it may appear in the trace."""
+    if _is_sensitive_key(key):
+        return REDACTED
+    if isinstance(value, dict):
+        return {k: _trace_value(k, v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_trace_value(None, item) for item in value]
+    if isinstance(value, str):
+        return _summary(value)
+    return value
+
+
+def _trace_arguments(args: dict) -> dict:
+    """The trace-safe form of a tools/call arguments dict.
+
+    Same shape as the input, but sensitive-named values (at any
+    depth) are redacted and long strings are summarized, so the
+    JSONL trace never holds a full argument payload in the clear.
+    """
+    if not isinstance(args, dict):
+        return {}
+    return {k: _trace_value(k, v) for k, v in args.items()}
 
 
 def _parse(line: str) -> Optional[dict]:
@@ -131,7 +178,7 @@ class Proxy:
                             {
                                 "seq": self._seq,
                                 "tool": tool,
-                                "arguments": args,
+                                "arguments": _trace_arguments(args),
                                 "fault": spec.kind if spec is not None else None,
                                 "latency_ms": round((time.monotonic() - started) * 1000, 1),
                                 "original": _summary(line),

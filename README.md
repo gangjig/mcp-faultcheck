@@ -130,11 +130,11 @@ The proxy is a standalone stdio filter — point any MCP client at it:
 python -m mcp_faultcheck proxy --config faults.json --trace trace.jsonl -- python -m my_mcp_server
 ```
 
-Every tools/call round trip is traced (tool, fault applied, latency, original vs. rewritten summary) and can be dumped as JSONL with `--trace`.
+Every tools/call round trip is traced (tool, fault applied, latency, original vs. rewritten summary) and can be dumped as JSONL with `--trace`. Trace files never hold raw argument payloads: values under sensitive-looking key names (token, password, credential, …) are replaced with `<redacted>` at any nesting depth, and long strings are truncated to the same 160-character summary as the response fields — so a credential passed as a tool argument does not land on disk in the clear.
 
 ## Scope
 
-v0.2 is stdio-only, single-server, and ships scripted placeholder runners — a fixed-step runner for fault scenarios and a one-attempt agent for goal scenarios; no built-in LLM. HTTP transport and multi-server setups are deliberately left for later; the proxy + report chain is the thing to prove first.
+v0.3 is stdio-only, single-server, and ships scripted placeholder runners — a fixed-step runner for fault scenarios and a one-attempt agent for goal scenarios; no built-in LLM. HTTP transport and multi-server setups are deliberately left for later; the proxy + report chain is the thing to prove first.
 
 ## Related projects
 
